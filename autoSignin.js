@@ -11,6 +11,10 @@ const signinURL =
   'https://member.aliyundrive.com/v1/activity/sign_in_list?_rx-s=mobile'
 const rewardURL =
   'https://member.aliyundrive.com/v1/activity/sign_in_reward?_rx-s=mobile'
+const tasksURL = 
+  'https://member.aliyundrive.com/v2/activity/sign_in_list?_rx-s=mobile'
+const _2ndRewardURL = 
+  'https://member.aliyundrive.com/v2/activity/sign_in_task_reward?_rx-s=mobile'
 
 // 使用 refresh_token 更新 access_token
 function updateAccesssToken(queryBody, remarks) {
@@ -98,6 +102,66 @@ function sign_in(access_token, remarks) {
     })
     .catch(e => {
       sendMessage.push('签到失败')
+      sendMessage.push(e.message)
+      return Promise.reject(sendMessage.join(', '))
+    })
+}
+
+function try_2nd_reward(access_token) {
+  const sendMessage = []
+  return axios(tasksURL, {
+    method: 'POST',
+    data: {},
+    headers: {
+      Authorization: access_token,
+      'Content-Type': 'application/json'
+    }
+  })
+    .then(d => d.data)
+    .then(async json => {
+      //console.log(json)
+      if (!json.success) {
+        sendMessage.push('获取v2任务列表失败', json.message)
+        return Promise.reject(sendMessage.join(', '))
+      }
+
+      const signInCount = json['result']['signInCount']
+      sendMessage.push(`今天是本月的第${signInCount}天`)
+      //console.log(json['result']['signInInfos'][signInCount-1])
+      const signInInfos = json['result']['signInInfos'][signInCount-1]
+      const _2ndTask = signInInfos['rewards'][1]
+      sendMessage.push(`今日第二任务: ${_2ndTask['remind']}, 奖励: ${_2ndTask['name']}, 状态: ${_2ndTask['status']}`)
+      /**
+       * _2ndTask['status']
+       *    verification: 已领取
+       *    finished: 已完成
+       *    unfinished: 未完成
+       */
+      if(_2ndTask['status'] == 'finished')
+        await axios(_2ndRewardURL, {
+          method: 'POST',
+          data: {
+            "signInDay": String(signInCount)
+          },
+          headers: {
+            Authorization: access_token,
+            'Content-Type': 'application/json'
+          }
+        })
+          .then(d => d.data)
+          .then(async json => {
+            console.log(json)
+          })
+          .catch(e => {
+            sendMessage.push('v2任务奖励领取失败')
+            sendMessage.push(e.message)
+            return Promise.reject(sendMessage.join(', '))
+          })
+
+      return sendMessage.join(', ')
+    })
+    .catch(e => {
+      sendMessage.push('v2任务列表获取失败')
       sendMessage.push(e.message)
       return Promise.reject(sendMessage.join(', '))
     })
@@ -192,7 +256,9 @@ async function getRefreshToken() {
         await updateCkEnv(instance, params)
       }
 
-      const sendMessage = await sign_in(access_token, remarks)
+      const sendMessage = await sign_in(access_token, remarks) 
+        + ' ### '
+        + await try_2nd_reward(access_token, remarks)
       console.log(sendMessage)
       console.log('\n')
       message.push(sendMessage)
